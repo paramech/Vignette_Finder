@@ -7,8 +7,8 @@ output:  xc, yc - vignette center coordinates (in pixels)
 @author: n.prokofiev
 """
 
-filepath = 'D:/AFMS/tags/202111/018/img4-avg.tif'
-of_name = 'D:/AFMS/tags/202111/018/img4.txt'
+filepath = 'Example/img4-avg.tif'
+of_name = 'Example/img4.txt'
 
 import numpy as np
 import matplotlib.image as mpimg
@@ -27,7 +27,7 @@ from scipy.optimize import curve_fit
 from scipy import ndimage
 
 # Calculating vignette center position which is supposed to be the brightest point in the image
-com = ndimage.measurements.center_of_mass(img)
+com = ndimage.center_of_mass(img)
 xc = int(com[0])
 yc = int(com[1])
 
