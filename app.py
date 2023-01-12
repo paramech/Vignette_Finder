@@ -9,12 +9,16 @@
 
 
 from PyQt5 import QtCore, QtGui, QtWidgets
+import os
+import numpy as np
+from PIL import Image
+import sys
 
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(543, 432)
+        MainWindow.setFixedSize(543, 432)
         MainWindow.setStyleSheet("")
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
@@ -78,26 +82,44 @@ class Ui_MainWindow(object):
 "<html><head><meta name=\"qrichtext\" content=\"1\" /><style type=\"text/css\">\n"
 "p, li { white-space: pre-wrap; }\n"
 "</style></head><body style=\" font-family:\'Ubuntu\'; font-size:11pt; font-weight:400; font-style:normal;\">\n"
-"<p style=\" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" color:#000000;\">Чтобы начать, выберите папку с фотографиями</span></p></body></html>"))
-        self.btn_start.setText(_translate("MainWindow", "Запустить скрипт"))
-        self.btn_clear.setText(_translate("MainWindow", "Очистить"))
-        self.btn_clear.clicked.connect(self.clear)
-        self.btn_save.setText(_translate("MainWindow", "Сохранить"))
+"<p style=\" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" color:#000000;\"></span></p></body></html>"))
+
         self.btn_open.setText(_translate("MainWindow", "Открыть"))
         self.btn_open.clicked.connect(self.open_file)
+        path = self.open_file()
+
+        self.btn_start.setText(_translate("MainWindow", "Запустить скрипт"))
+        self.btn_start.clicked.connect(lambda: self.finder(path))
+        self.btn_clear.setText(_translate("MainWindow", "Очистить"))
+        self.btn_clear.clicked.connect(self.text.clear)
+        self.btn_save.setText(_translate("MainWindow", "Сохранить"))
         self.btn_help.setText(_translate("MainWindow", "Помощь"))
 
     def open_file(self):
-        folder = QtWidgets.QFileDialog.getExistingDirectory(None, "Select Folder")
+        folder = QtWidgets.QFileDialog.getExistingDirectory(None, "Выберите директорию")
         if folder:
-            self.text.append("Выбран путь: {}".format(folder))
+            self.text.append("Выбрана следующая директория: {}".format(folder))
             self.btn_start.setEnabled(True)
+            return folder
 
-    def clear(self):
-        self.text.setText("")
+    def finder(self, path):
+        arr = []
+        os.chdir(path)
+        allfiles = os.listdir(os.getcwd())
+        img_list = [filename for filename in allfiles if filename.startswith("img") and filename.endswith(".tif")]
+        img_list.sort()
+        string = "Найдены следующие изображения: "
+        for img in img_list:
+            string += "{} ".format(img)
+        self.text.append(string)
+
+        self.text.append("Изображения усредняются...")
+        for i in range(5):
+            temp_list = []
+            temp_list = [img for img in img_list if "img{}_".format(i) in img]
+            print(temp_list)
 
 if __name__ == "__main__":
-    import sys
     app = QtWidgets.QApplication(sys.argv)
     MainWindow = QtWidgets.QMainWindow()
     ui = Ui_MainWindow()
