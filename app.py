@@ -11,8 +11,13 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 import os
 import numpy as np
-from PIL import Image
+import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
 import sys
+
+
+IMG_WIDTH = 1440
+IMG_HEIGHT = 1080
 
 
 class Ui_MainWindow(object):
@@ -103,7 +108,7 @@ class Ui_MainWindow(object):
             return folder
 
     def finder(self, path):
-        arr = []
+        avg_arr = []
         os.chdir(path)
         allfiles = os.listdir(os.getcwd())
         img_list = [filename for filename in allfiles if filename.startswith("img") and filename.endswith(".tif")]
@@ -115,9 +120,16 @@ class Ui_MainWindow(object):
 
         self.text.append("Изображения усредняются...")
         for i in range(5):
-            temp_list = []
-            temp_list = [img for img in img_list if "img{}_".format(i) in img]
-            print(temp_list)
+            names = [name for name in img_list if "img{}_".format(i) in name]
+            images = []
+            for name in names:
+                image = np.array(mpimg.imread(name))
+                images.append(image)
+            avg = np.average(images)
+            plt.imsave("img{}-avg.tif".format(i), avg)
+            avg_arr.append(avg)
+
+
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
