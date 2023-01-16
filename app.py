@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from scipy import ndimage
 import sys
+from pyexiv2 import Image
 
 
 IMG_WIDTH = 1440
@@ -121,6 +122,10 @@ class Ui_MainWindow(object):
         allfiles = os.listdir(os.getcwd())
         img_list = [filename for filename in allfiles if filename.startswith("img") and filename.endswith(".tif")]
         img_list.sort()
+
+        img_f = Image(img_list[0])
+        img_xmp = img_f.read_xmp()
+        print(img_xmp)
 
         string = "Найдены следующие изображения: "
         for img in img_list:
