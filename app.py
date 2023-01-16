@@ -14,11 +14,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
-import tiffile
-import imageio
 from scipy.optimize import curve_fit
 from scipy import ndimage
-from PIL import Image
 import sys
 
 
@@ -44,7 +41,7 @@ class Ui_MainWindow(object):
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.label = QtWidgets.QLabel(self.centralwidget)
-        self.label.setGeometry(QtCore.QRect(0, 20, 541, 51))
+        self.label.setGeometry(QtCore.QRect(0, 20, 540, 50))
         font = QtGui.QFont()
         font.setFamily("Ubuntu Mono")
         font.setPointSize(16)
@@ -60,17 +57,13 @@ class Ui_MainWindow(object):
         self.text.setObjectName("text")
         self.btn_start = QtWidgets.QPushButton(self.centralwidget)
         self.btn_start.setEnabled(False)
-        self.btn_start.setGeometry(QtCore.QRect(20, 370, 151, 31))
+        self.btn_start.setGeometry(QtCore.QRect(15, 370, 150, 30))
         self.btn_start.setObjectName("btn_start")
         self.btn_clear = QtWidgets.QPushButton(self.centralwidget)
-        self.btn_clear.setGeometry(QtCore.QRect(420, 370, 111, 31))
+        self.btn_clear.setGeometry(QtCore.QRect(425, 370, 110, 30))
         self.btn_clear.setObjectName("btn_clear")
-        self.btn_save = QtWidgets.QPushButton(self.centralwidget)
-        self.btn_save.setEnabled(False)
-        self.btn_save.setGeometry(QtCore.QRect(180, 370, 111, 31))
-        self.btn_save.setObjectName("btn_save")
         self.line = QtWidgets.QFrame(self.centralwidget)
-        self.line.setGeometry(QtCore.QRect(-3, 400, 551, 21))
+        self.line.setGeometry(QtCore.QRect(-3, 400, 550, 20))
         self.line.setFrameShape(QtWidgets.QFrame.HLine)
         self.line.setFrameShadow(QtWidgets.QFrame.Sunken)
         self.line.setObjectName("line")
@@ -79,11 +72,12 @@ class Ui_MainWindow(object):
         self.btn_open.setAutoFillBackground(False)
         self.btn_open.setStyleSheet("")
         self.btn_open.setObjectName("btn_open")
-        self.btn_help = QtWidgets.QPushButton(self.centralwidget)
-        self.btn_help.setGeometry(QtCore.QRect(80, 0, 80, 25))
-        self.btn_help.setObjectName("btn_help")
+        self.btn_save = QtWidgets.QPushButton(self.centralwidget)
+        self.btn_save.setEnabled(False)
+        self.btn_save.setGeometry(QtCore.QRect(80, 0, 90, 25))
+        self.btn_save.setObjectName("btn_save")
         self.line_2 = QtWidgets.QFrame(self.centralwidget)
-        self.line_2.setGeometry(QtCore.QRect(-3, 9, 551, 31))
+        self.line_2.setGeometry(QtCore.QRect(-3, 9, 550, 30))
         self.line_2.setFrameShape(QtWidgets.QFrame.HLine)
         self.line_2.setFrameShadow(QtWidgets.QFrame.Sunken)
         self.line_2.setObjectName("line_2")
@@ -98,22 +92,21 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "Vignette Finder"))
-        self.label.setText(_translate("MainWindow", "Определение коэффициентов виньеттирования"))
+        self.label.setText(_translate("MainWindow", "Определение параметров виньеттирования"))
         self.text.setHtml(_translate("MainWindow", "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0//EN\" \"http://www.w3.org/TR/REC-html40/strict.dtd\">\n"
 "<html><head><meta name=\"qrichtext\" content=\"1\" /><style type=\"text/css\">\n"
 "p, li { white-space: pre-wrap; }\n"
 "</style></head><body style=\" font-family:\'Ubuntu\'; font-size:11pt; font-weight:400; font-style:normal;\">\n"
-"<p style=\" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" color:#000000;\"></span></p></body></html>"))
+"<p style=\" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" color:#000000;\">"
+                                                   "Чтобы начать, откройте директорию с фотографиями</span></p></body></html>"))
 
         self.btn_open.setText(_translate("MainWindow", "Открыть"))
         self.btn_open.clicked.connect(self.open_file)
-
         self.btn_start.setText(_translate("MainWindow", "Запустить скрипт"))
         self.btn_start.clicked.connect(self.finder)
         self.btn_clear.setText(_translate("MainWindow", "Очистить"))
         self.btn_clear.clicked.connect(self.text.clear)
         self.btn_save.setText(_translate("MainWindow", "Сохранить"))
-        self.btn_help.setText(_translate("MainWindow", "Помощь"))
 
     def open_file(self):
         folder = QtWidgets.QFileDialog.getExistingDirectory(None, "Выберите директорию")
@@ -129,14 +122,6 @@ class Ui_MainWindow(object):
         img_list = [filename for filename in allfiles if filename.startswith("img") and filename.endswith(".tif")]
         img_list.sort()
 
-        txt_list = [filename for filename in allfiles if filename.startswith("img") and filename.endswith(".txt")]
-
-        for i in range(5):
-            if "img{}.txt".format(i) not in txt_list:
-                os.mknod("img{}.txt".format(i))
-                txt_list.append("img{}.txt".format(i))
-        txt_list.sort()
-
         string = "Найдены следующие изображения: "
         for img in img_list:
             string += "{} ".format(img)
@@ -146,17 +131,15 @@ class Ui_MainWindow(object):
         QtWidgets.qApp.processEvents()
         for i in range(5):
             names = [name for name in img_list if "img{}_".format(i) in name]
-            # images = np.array([np.array(Image.open(name)) for name in names])
             images = np.array([np.array(mpimg.imread(name)) for name in names])
             avg = np.array(np.mean(images, axis=0), dtype='uint16')
-            # img_arr = np.array(np.mean(images, axis=0), dtype='uint16')
-            # avg = Image.fromarray(img_arr, 'I;16')
-            # imageio.imwrite("img{}-avg.tif".format(i), avg)
             avg_arr.append(avg)
+        self.text.append("Изображения усреднены")
+        QtWidgets.qApp.processEvents()
 
-        for index in range(5):
-            note = ("Центр виньетирования потока {}: ".format(index))
-            image = avg_arr[index].T
+        for i in range(5):
+            note = ("Центр виньетирования для канала {}: ".format(i))
+            image = avg_arr[i].T
             image = image - 3840.0  # blacklevel
 
             com = ndimage.center_of_mass(image)
@@ -166,44 +149,28 @@ class Ui_MainWindow(object):
             self.text.append(note)
             QtWidgets.qApp.processEvents()
 
-            note = "Коэффиценты полинома: "
-            Vref = 0.
+            note = "Коэффициенты полинома: "
             Vref = image[xc - 5:xc + 6, yc - 5:yc + 6].mean()
 
             Vx = np.empty(IMG_WIDTH)
-            txt = txt_list[index]
-            # fo = open(txt, "w")
-            # fo.write("r V \n")
             fo_r = []
             fo_v = []
-            i = 0
             j = 0
-            while i < IMG_WIDTH:
-                while j < IMG_HEIGHT:
-                    Vx[i] = image[i, j] / Vref
-                    if Vx[i] < 1.2:
-                        r = ((i - xc) ** 2 + (j - yc) ** 2) ** (1 / 2)
-                        # fo.write(str(r))
+            k = 0
+            while j < IMG_WIDTH:
+                while k < IMG_HEIGHT:
+                    Vx[j] = image[j, k] / Vref
+                    if Vx[j] < 1.2:
+                        r = ((j - xc) ** 2 + (k - yc) ** 2) ** (1 / 2)
                         fo_r.append(r)
-                        fo_v.append(str(Vx[i]))
-                        # fo.write(" ")
-                        # fo.write(str(Vx[i]))
-                        # fo.write("\n")
-                    j = j + 1
-                j = 0
-                i = i + 1
-            # fo.close()
+                        fo_v.append(str(Vx[j]))
+                    k = k + 1
+                k = 0
+                j = j + 1
 
             df0 = np.vstack((fo_r, fo_v)).T
+            df0 = df0.astype(np.float64)
             df0 = pd.DataFrame(df0, columns=['r', 'V'])
-            print(df0)
-            df0.plot.scatter(x='r', y='V')
-
-
-            # df0 = pd.read_csv(txt, sep=' ')
-            # df0.plot.scatter(x='r', y='V')
-            # print(df0['r'])
-            # print(df0['V'])
 
             popt, pcov = curve_fit(poly6, df0['r'], df0['V'])
 
@@ -217,9 +184,9 @@ class Ui_MainWindow(object):
                 err_arr.append(0)
             if float(checks[1]) < -10e-07 or float(checks[1]) > 10e-07:
                 err_arr.append(1)
-            if float(checks[3]) < -10e-13 or float(checks[2]) > 10e-13:
+            if float(checks[3]) < -10e-13 or float(checks[3]) > 10e-13:
                 err_arr.append(3)
-            if float(checks[5]) < -10e-17 or float(checks[3]) > 10e-18:
+            if float(checks[5]) < -10e-19 or float(checks[5]) > 10e-19:
                 err_arr.append(5)
             if len(err_arr) != 0:
                 note += " (потенциально некачественные: "
@@ -237,6 +204,9 @@ class Ui_MainWindow(object):
             v0 = poly6(df0['r'], *popt)
             plt.plot(df0['r'], v0, color='red')
 
+        self.text.append("Скрипт завершен, сохраните данные")
+        QtWidgets.qApp.processEvents()
+        self.btn_save.setEnabled(True)
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
