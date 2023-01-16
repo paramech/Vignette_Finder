@@ -11,13 +11,29 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 import os
 import numpy as np
+import pandas as pd
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+import tiffile
+import imageio
+from scipy.optimize import curve_fit
+from scipy import ndimage
+from PIL import Image
 import sys
 
 
 IMG_WIDTH = 1440
 IMG_HEIGHT = 1080
+work_path = ""
+save_path = ""
+centers = []
+coefficients = []
+
+
+# def poly6(x, b, c, d, e, f, g):
+#    return 1 + b * x + c * x**2 + d * x**3 + e * x**4 + f * x**5 + g * x**6
+def poly6(x, b, c, e, g):
+    return 1 + b * x + c * x**2 + e * x**4 + g * x**6
 
 
 class Ui_MainWindow(object):
@@ -91,10 +107,9 @@ class Ui_MainWindow(object):
 
         self.btn_open.setText(_translate("MainWindow", "Открыть"))
         self.btn_open.clicked.connect(self.open_file)
-        path = self.open_file()
 
         self.btn_start.setText(_translate("MainWindow", "Запустить скрипт"))
-        self.btn_start.clicked.connect(lambda: self.finder(path))
+        self.btn_start.clicked.connect(self.finder)
         self.btn_clear.setText(_translate("MainWindow", "Очистить"))
         self.btn_clear.clicked.connect(self.text.clear)
         self.btn_save.setText(_translate("MainWindow", "Сохранить"))
@@ -105,30 +120,122 @@ class Ui_MainWindow(object):
         if folder:
             self.text.append("Выбрана следующая директория: {}".format(folder))
             self.btn_start.setEnabled(True)
-            return folder
+            os.chdir(folder)
+            QtWidgets.qApp.processEvents()
 
-    def finder(self, path):
+    def finder(self):
         avg_arr = []
-        os.chdir(path)
         allfiles = os.listdir(os.getcwd())
         img_list = [filename for filename in allfiles if filename.startswith("img") and filename.endswith(".tif")]
         img_list.sort()
+
+        txt_list = [filename for filename in allfiles if filename.startswith("img") and filename.endswith(".txt")]
+
+        for i in range(5):
+            if "img{}.txt".format(i) not in txt_list:
+                os.mknod("img{}.txt".format(i))
+                txt_list.append("img{}.txt".format(i))
+        txt_list.sort()
+
         string = "Найдены следующие изображения: "
         for img in img_list:
             string += "{} ".format(img)
         self.text.append(string)
 
         self.text.append("Изображения усредняются...")
+        QtWidgets.qApp.processEvents()
         for i in range(5):
             names = [name for name in img_list if "img{}_".format(i) in name]
-            images = []
-            for name in names:
-                image = np.array(mpimg.imread(name))
-                images.append(image)
-            avg = np.average(images)
-            plt.imsave("img{}-avg.tif".format(i), avg)
+            # images = np.array([np.array(Image.open(name)) for name in names])
+            images = np.array([np.array(mpimg.imread(name)) for name in names])
+            avg = np.array(np.mean(images, axis=0), dtype='uint16')
+            # img_arr = np.array(np.mean(images, axis=0), dtype='uint16')
+            # avg = Image.fromarray(img_arr, 'I;16')
+            # imageio.imwrite("img{}-avg.tif".format(i), avg)
             avg_arr.append(avg)
 
+        for index in range(5):
+            note = ("Центр виньетирования потока {}: ".format(index))
+            image = avg_arr[index].T
+            image = image - 3840.0  # blacklevel
+
+            com = ndimage.center_of_mass(image)
+            xc = int(com[0])
+            yc = int(com[1])
+            note += str(xc)+", "+str(yc)
+            self.text.append(note)
+            QtWidgets.qApp.processEvents()
+
+            note = "Коэффиценты полинома: "
+            Vref = 0.
+            Vref = image[xc - 5:xc + 6, yc - 5:yc + 6].mean()
+
+            Vx = np.empty(IMG_WIDTH)
+            txt = txt_list[index]
+            # fo = open(txt, "w")
+            # fo.write("r V \n")
+            fo_r = []
+            fo_v = []
+            i = 0
+            j = 0
+            while i < IMG_WIDTH:
+                while j < IMG_HEIGHT:
+                    Vx[i] = image[i, j] / Vref
+                    if Vx[i] < 1.2:
+                        r = ((i - xc) ** 2 + (j - yc) ** 2) ** (1 / 2)
+                        # fo.write(str(r))
+                        fo_r.append(r)
+                        fo_v.append(str(Vx[i]))
+                        # fo.write(" ")
+                        # fo.write(str(Vx[i]))
+                        # fo.write("\n")
+                    j = j + 1
+                j = 0
+                i = i + 1
+            # fo.close()
+
+            df0 = np.vstack((fo_r, fo_v)).T
+            df0 = pd.DataFrame(df0, columns=['r', 'V'])
+            print(df0)
+            df0.plot.scatter(x='r', y='V')
+
+
+            # df0 = pd.read_csv(txt, sep=' ')
+            # df0.plot.scatter(x='r', y='V')
+            # print(df0['r'])
+            # print(df0['V'])
+
+            popt, pcov = curve_fit(poly6, df0['r'], df0['V'])
+
+            err_arr = []
+            checks = str(popt)[1:-1].split()
+            checks.insert(2, "0")
+            checks.insert(4, "0")
+            note += str(checks)
+            print(checks)
+            if float(checks[0]) < -10e-05 or float(checks[0]) > 10e-05:
+                err_arr.append(0)
+            if float(checks[1]) < -10e-07 or float(checks[1]) > 10e-07:
+                err_arr.append(1)
+            if float(checks[3]) < -10e-13 or float(checks[2]) > 10e-13:
+                err_arr.append(3)
+            if float(checks[5]) < -10e-17 or float(checks[3]) > 10e-18:
+                err_arr.append(5)
+            if len(err_arr) != 0:
+                note += " (потенциально некачественные: "
+                for err in err_arr:
+                    note += str(checks[err]) + " "
+                note += ")"
+
+            note = note.replace("'", "")
+            note = note.replace(",", "")
+            note = note.replace("[", "")
+            note = note.replace("]", "")
+            self.text.append(note)
+            QtWidgets.qApp.processEvents()
+
+            v0 = poly6(df0['r'], *popt)
+            plt.plot(df0['r'], v0, color='red')
 
 
 if __name__ == "__main__":
