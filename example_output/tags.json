@@ -1,0 +1,54 @@
+{
+  "Cams": {
+    "0": {
+      "central_wavelength": "470",
+      "band_name": "Blue",
+      "wavelength_fwhm": "28",
+      "fnumber": "1.8",
+      "band_sensitivity": "0",
+      "vignetting_center": "722;538",
+      "vignetting_polynomial": "2.86028594e-05;-1.80341851e-07;0.0;2.03178422e-13;0.0;-7.39217678e-19",
+      "radiometric_calibration": "0.0000865484;0"
+    },
+    "1": {
+      "central_wavelength": "560",
+      "band_name": "Green",
+      "wavelength_fwhm": "20",
+      "fnumber": "1.8",
+      "band_sensitivity": "0",
+      "vignetting_center": "722;540",
+      "vignetting_polynomial": "-3.85362339e-05;-3.63379643e-08;0.0;-1.58921988e-13;0.0;-4.14584858e-19",
+      "radiometric_calibration": "0.0000865484;0"
+    },
+    "2": {
+      "central_wavelength": "665",
+      "band_name": "Red",
+      "wavelength_fwhm": "14",
+      "fnumber": "1.8",
+      "band_sensitivity": "0",
+      "vignetting_center": "717;540",
+      "vignetting_polynomial": "1.43582804e-05;-1.30794934e-07;0.0;9.84442051e-14;0.0;-6.45606735e-19",
+      "radiometric_calibration": "0.0000865484;0"
+    },
+    "3": {
+      "central_wavelength": "720",
+      "band_name": "Rededge",
+      "wavelength_fwhm": "12",
+      "fnumber": "1.8",
+      "band_sensitivity": "0",
+      "vignetting_center": "715;541",
+      "vignetting_polynomial": "3.07552198e-05;-2.35901823e-07;0.0;2.02705491e-13;0.0;-6.5345e-19",
+      "radiometric_calibration": "0.0000865484;0"
+    },
+    "4": {
+      "central_wavelength": "840",
+      "band_name": "NIR",
+      "wavelength_fwhm": "40",
+      "fnumber": "1.8",
+      "band_sensitivity": "0",
+      "vignetting_center": "708;550",
+      "vignetting_polynomial": "4.81380075e-05;-2.63192886e-07;0.0;3.97897269e-13;0.0;-8.62070438e-19",
+      "radiometric_calibration": "0.0000865484;0"
+    }
+  }
+}

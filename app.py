@@ -9,13 +9,14 @@ from scipy.optimize import curve_fit
 from scipy import ndimage
 from pyexiv2 import Image
 import json
+import configparser
 
 IMG_WIDTH = 1440
 IMG_HEIGHT = 1080
-centers = []
-coefficients = []
-radiometrics = []
-band_senses = []
+centers = []  # to store vignette centers as x;y
+coefficients = []  # to store vignette coefficients as 1;2;3;4;5;6
+radiometrics = []  # to store radiometric calibration metadata from video stream
+band_senses = []  # to store band sensetivity metadata from video stream
 
 
 # def poly6(x, b, c, d, e, f, g):
@@ -24,7 +25,7 @@ def poly6(x, b, c, e, g):
     return 1 + b * x + c * x**2 + e * x**4 + g * x**6
 
 
-class Ui_MainWindow(object):
+class Ui_MainWindow(object):  # Qt-generated app interface
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
         MainWindow.setFixedSize(543, 408)
@@ -99,35 +100,36 @@ class Ui_MainWindow(object):
             QtWidgets.qApp.processEvents()
 
     def finder(self):
-        avg_arr = []
-        meta_check = True
+        avg_arr = []  # array to store average images as arrays of uint16
+        meta_check = True  # flag to stop program if there are metadata disparities
         allfiles = os.listdir(os.getcwd())
         img_list = [filename for filename in allfiles if filename.startswith("img") and filename.endswith(".tif")]
         img_list.sort()
-
         if len(img_list) == 0:
             self.text.append("Фотографии в директории отсутствуют")
             pass
         else:
             note = "Найдены следующие изображения: "
-            for img in img_list:
+            for img in img_list:  # display found images in the chat feed
                 note += "{}, ".format(img)
             note = note[:len(note)-2]
             self.text.append(note)
+            QtWidgets.qApp.processEvents()
 
-            for i in range(5):
+            for i in range(5):  # cycle for each video stream
                 names = [name for name in img_list if "img{}_".format(i) in name]
                 images = np.array([np.array(mpimg.imread(name)) for name in names])
                 avg = np.array(np.mean(images, axis=0), dtype='uint16')
                 avg_arr.append(avg)
 
-                img_f = Image(names[0])
+                img_f = Image(names[0])  # first image as metadata reference
                 metadata = img_f.read_xmp()
+                # More metadata filters can be implemented
                 radiometric = metadata['Xmp.MicaSense.RadiometricCalibration']
                 radiometrics.append("{:.10f}".format(float(radiometric[:-6]))+";0")
                 band_sens = metadata['Xmp.Camera.BandSensitivity']
                 band_senses.append(band_sens)
-                for j in range(1, len(names)):
+                for j in range(1, len(names)):  # comparison with remaining images
                     img_f = Image(names[j])
                     metadata = img_f.read_xmp()
                     if metadata['Xmp.MicaSense.RadiometricCalibration'] != radiometric:
@@ -145,11 +147,11 @@ class Ui_MainWindow(object):
                 self.text.append("Метаданные изображений совпадают, поиск параметров...")
                 QtWidgets.qApp.processEvents()
                 for i in range(5):
+                    # Calculating vignette center position which is supposed to be the brightest point in the image
                     note = ("Центр виньетирования для канала {}: ".format(i))
                     image = avg_arr[i].T
                     image = image - 3840.0  # blacklevel
-
-                    com = ndimage.center_of_mass(image)
+                    com = ndimage.center_of_mass(image)  # center of mass calculation method
                     xc = int(com[0])
                     yc = int(com[1])
                     center = str(xc)+";"+str(yc)
@@ -159,13 +161,15 @@ class Ui_MainWindow(object):
                     QtWidgets.qApp.processEvents()
 
                     note = "Коэффициенты полинома: "
+                    # Calculating "brightest pixel" value. All image will be normalized to that value. Averaging 11x11
                     Vref = image[xc-5:xc+6, yc-5:yc+6].mean()
-
                     Vx = np.empty(IMG_WIDTH)
                     df_r = []
                     df_V = []
                     j = 0
                     k = 0
+                    """ Following cycle computes each pixel to brighest pixel ratio, distance to vignetting center 
+                    and stores data in the arrays to be dumped later """
                     while j < IMG_WIDTH:
                         while k < IMG_HEIGHT:
                             Vx[j] = image[j, k] / Vref
@@ -176,13 +180,13 @@ class Ui_MainWindow(object):
                             k = k + 1
                         k = 0
                         j = j + 1
-
                     df0 = np.vstack((df_r, df_V)).T
                     df0 = df0.astype(np.float64)
                     df0 = pd.DataFrame(df0, columns=['r', 'V'])
+                    popt, pcov = curve_fit(poly6, df0['r'], df0['V'])  # coefficients calculation
 
-                    popt, pcov = curve_fit(poly6, df0['r'], df0['V'])
-
+                    """Coefficients have to exist within certain limits. Stored coefficients will be compared to those 
+                    limits. An error will appear in the chat feed if limits are exceeded"""
                     err_arr = []
                     checks = str(popt)[1:-1].split()
                     checks.insert(2, "0")
@@ -193,8 +197,7 @@ class Ui_MainWindow(object):
                     for j in range(len(checks)):
                         coefficient += str(checks[j])+";"
                     coefficient = coefficient[:len(coefficient)-1]
-                    coefficients.append(coefficient)
-
+                    coefficients.append(coefficient)  # reformatted coefficients is appended into array
                     if checks[0] < -10e-05 or checks[0] > 10e-05:
                         err_arr.append(0)
                     if checks[1] < -10e-07 or checks[1] > 10e-07:
@@ -203,26 +206,22 @@ class Ui_MainWindow(object):
                         err_arr.append(3)
                     if checks[5] < -10e-19 or checks[5] > 10e-19:
                         err_arr.append(5)
-
                     note = note.replace("'", "")
                     note = note.replace("[", "")
                     note = note.replace("]", "")
-                    if len(err_arr) != 0:
+                    if len(err_arr) != 0:  # if limits were exceeded, exceeding coefficients will be listed
                         note += "; потенциально некачественные: "
                         for err in err_arr:
                             note += str(checks[err]) + ", "
                         note = note[:len(note)-2]
                     self.text.append(note)
                     QtWidgets.qApp.processEvents()
-
-                    v0 = poly6(df0['r'], *popt)
-                    plt.plot(df0['r'], v0, color='red')
+                    # v0 = poly6(df0['r'], *popt)
+                    # plt.plot(df0['r'], v0, color='red')
 
                 self.text.append("Скрипт завершен, сохраните файлы конфигурации")
                 QtWidgets.qApp.processEvents()
                 self.btn_save.setEnabled(True)
-                print(centers)
-                print(coefficients)
 
     def save_file(self):
         folder = QtWidgets.QFileDialog.getExistingDirectory(None, "Выберите директорию")
@@ -231,6 +230,7 @@ class Ui_MainWindow(object):
             os.chdir(folder)
             QtWidgets.qApp.processEvents()
 
+            # Parameters to format metadata, centers and coefficients into configuration files
             params = (band_senses[0], centers[0], coefficients[0], radiometrics[0], band_senses[1], centers[1],
                       coefficients[1], radiometrics[1], band_senses[2], centers[2], coefficients[2], radiometrics[2],
                       band_senses[3], centers[3], coefficients[3], radiometrics[3], band_senses[4], centers[4],
@@ -290,12 +290,65 @@ class Ui_MainWindow(object):
                                     }
                                 }
                             }''' % params
-            json_result = json.loads(json_string)
-            with open('tags.json', 'w') as f:
-                json.dump(json_result, f, indent=2)
+            ini_string = '''
+                        [Cam0]
+                        central_wavelength=470
+                        band_name=Blue
+                        wavelength_fwhm=28
+                        fnumber=1.8
+                        band_sensitivity=%s
+                        vignetting_center=%s
+                        vignetting_polynomial=%s
+                        radiometric_calibration=%s
+                        
+                        [Cam1]
+                        central_wavelength=560
+                        band_name=Green
+                        wavelength_fwhm=20
+                        fnumber=1.8
+                        band_sensitivity=%s
+                        vignetting_center=%s
+                        vignetting_polynomial=%s
+                        radiometric_calibration=%s
+                        
+                        [Cam2]
+                        central_wavelength=668
+                        band_name=Red
+                        wavelength_fwhm=14
+                        fnumber=1.8
+                        band_sensitivity=%s
+                        vignetting_center=%s
+                        vignetting_polynomial=%s
+                        radiometric_calibration=%s
+                        
+                        [Cam3]
+                        central_wavelength=720
+                        band_name=Rededge
+                        wavelength_fwhm=12
+                        fnumber=1.8
+                        band_sensitivity=%s
+                        vignetting_center=%s
+                        vignetting_polynomial=%s
+                        radiometric_calibration=%s
+                        
+                        [Cam4]
+                        central_wavelength=840
+                        band_name=NIR
+                        wavelength_fwhm=40
+                        fnumber=1.8
+                        band_sensitivity=%s
+                        vignetting_center=%s
+                        vignetting_polynomial=%s
+                        radiometric_calibration=%s''' % params
 
+            json_result = json.loads(json_string)
+            with open('tags.json', 'w') as f:  # save .json file
+                json.dump(json_result, f, indent=2)
+            config = configparser.ConfigParser(allow_no_value=True)
+            config.read_string(ini_string)
+            with open('tags.ini', 'w') as f:  # save .ini file
+                config.write(f)
             self.btn_start.setEnabled(False)
-            self.btn_save.setEnabled(False)
 
 
 if __name__ == "__main__":
