@@ -3,7 +3,6 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib.image as mpimg
-import matplotlib.pyplot as plt
 from PyQt5 import QtCore, QtGui, QtWidgets
 from scipy.optimize import curve_fit
 from scipy import ndimage
@@ -13,19 +12,57 @@ import configparser
 
 IMG_WIDTH = 1440
 IMG_HEIGHT = 1080
-centers = []  # to store vignette centers as x;y
-coefficients = []  # to store vignette coefficients as 1;2;3;4;5;6
-radiometrics = []  # to store radiometric calibration metadata from video stream
-band_senses = []  # to store band sensetivity metadata from video stream
+centers = []  # list to store vignette centers as "x;y" strings
+coefficients = []  # list to store vignette coefficients as "1.1;2.2;3.3;4.4;5.5;6.6" strings
 
 
-# def poly6(x, b, c, d, e, f, g):
-#    return 1 + b * x + c * x**2 + d * x**3 + e * x**4 + f * x**5 + g * x**6
+def check_average(img_list):
+    """
+    Check whether the metadata from the image corresponds to the metadata from the first image of each band. BandName is
+    used to make sure images are from the same band. ISOSpeedRating and ExposureTime are used to make sure averaging
+    will deliver correct result. If there is a difference in tags, finish function presumably. Else, find an average
+    image and store it in the list. Repeat for each band
+    :param img_list: filenames list containing all images from opened directory
+    :return: Checkout flag and average images list
+    """
+    averages = []
+    for i in range(5):
+        # Filter out all filenames but from band that is being processed
+        names = [name for name in img_list if "img{}_".format(i) in name]
+        img = Image(names[0])  # read first image and use its metadata as a reference
+        exif = img.read_exif()
+        xmp = img.read_xmp()
+        iso_speed = exif['Exif.Photo.ISOSpeedRatings']
+        exposure_time = exif['Exif.Photo.ExposureTime']
+        band_name = xmp['Xmp.Camera.BandName']
+        for j in range(1, len(names)):  # compare metadata from each image (besides first) to the reference
+            img = Image(names[j])
+            exif = img.read_exif()
+            xmp = img.read_xmp()
+            if exif['Exif.Photo.ISOSpeedRatings'] != iso_speed or exif['Exif.Photo.ExposureTime'] != exposure_time or \
+                    xmp['Xmp.Camera.BandName'] != band_name:
+                return False, averages
+
+        # Open images as NumPy arrays of arrays for successful averaging of uint16 pixels
+        images = np.array([np.array(mpimg.imread(name)) for name in names])
+        average = np.array(np.mean(images, axis=0), dtype='uint16')
+        averages.append(average)
+    return True, averages
+
+
 def poly6(x, b, c, e, g):
     return 1 + b * x + c * x**2 + e * x**4 + g * x**6
 
 
-class Ui_MainWindow(object):  # Qt-generated app interface
+class Ui_MainWindow(object):
+    """
+    Qt-generated GUI Class with implemented open_file, finder and save_file functions. Open directory with
+    images of Geoscan Pollux bands. Launch the main script to calculate vignette coefficients and store them into lists.
+    Save tags.json and tags.ini configuration files in chosen directory
+
+    The GUI contains text browser to inform the user about the calibration progress
+    """
+
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
         MainWindow.setFixedSize(543, 408)
@@ -54,7 +91,7 @@ class Ui_MainWindow(object):  # Qt-generated app interface
         self.btn_clear.setGeometry(QtCore.QRect(425, 370, 110, 30))
         self.btn_clear.setObjectName("btn_clear")
         self.line = QtWidgets.QFrame(self.centralwidget)
-        self.line.setGeometry(QtCore.QRect(-3, 10, 550, 30))
+        self.line.setGeometry(QtCore.QRect(0, 10, 543, 30))
         self.line.setFrameShape(QtWidgets.QFrame.HLine)
         self.line.setFrameShadow(QtWidgets.QFrame.Sunken)
         self.line.setObjectName("line")
@@ -81,7 +118,6 @@ class Ui_MainWindow(object):  # Qt-generated app interface
 "</style></head><body style=\" font-family:\'Ubuntu\'; font-size:11pt; font-weight:400; font-style:normal;\">\n"
 "<p style=\" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" color:#000000;\">"
                                                    "Чтобы начать, откройте директорию с фотографиями</span></p></body></html>"))
-
         self.btn_open.setText(_translate("MainWindow", "Открыть"))
         self.btn_open.clicked.connect(self.open_file)
         self.btn_start.setText(_translate("MainWindow", "Запустить скрипт"))
@@ -92,17 +128,27 @@ class Ui_MainWindow(object):  # Qt-generated app interface
         self.btn_save.clicked.connect(self.save_file)
 
     def open_file(self):
+        """
+        Change current directory to the folder of user's choice for further use by the main script. Display selected
+        directory in the text browser
+        """
         folder = QtWidgets.QFileDialog.getExistingDirectory(None, "Выберите директорию")
         if folder:
             self.text.append("Открыта директория {}".format(folder))
-            self.btn_start.setEnabled(True)
+            self.btn_start.setEnabled(True)  # enable "Запустить скрипт" button to work with inner images
             os.chdir(folder)
             QtWidgets.qApp.processEvents()
 
     def finder(self):
-        avg_arr = []  # array to store average images as arrays of uint16
-        meta_check = True  # flag to stop program if there are metadata disparities
-        allfiles = os.listdir(os.getcwd())
+        """
+        Open all filtered images in chosen directory and store them in the list. If there are images in correct format,
+        launch check_average and use returned images list to calculate the vignette centers (theorized to correlate
+        with mass center of the image) and vignette coefficients as polynomial of pixels brightness approximation.
+        Format and store collected data in lists as strings. Check if coefficients exceed proposed limits and display
+        warnings in the text browser
+        """
+        allfiles = os.listdir(os.getcwd())  # get all filenames in the current directory
+        # Filter out everything but "img...tif" files and sort them by names
         img_list = [filename for filename in allfiles if filename.startswith("img") and filename.endswith(".tif")]
         img_list.sort()
         if len(img_list) == 0:
@@ -110,39 +156,12 @@ class Ui_MainWindow(object):  # Qt-generated app interface
             pass
         else:
             note = "Найдены следующие изображения: "
-            for img in img_list:  # display found images in the chat feed
+            for img in img_list:  # display found images in the text browser
                 note += "{}, ".format(img)
             note = note[:len(note)-2]
             self.text.append(note)
             QtWidgets.qApp.processEvents()
-
-            for i in range(5):  # cycle for each video stream
-                names = [name for name in img_list if "img{}_".format(i) in name]
-                images = np.array([np.array(mpimg.imread(name)) for name in names])
-                avg = np.array(np.mean(images, axis=0), dtype='uint16')
-                avg_arr.append(avg)
-
-                img_f = Image(names[0])  # first image as metadata reference
-                metadata = img_f.read_xmp()
-                # More metadata filters can be implemented
-                radiometric = metadata['Xmp.MicaSense.RadiometricCalibration']
-                radiometrics.append("{:.10f}".format(float(radiometric[:-6]))+";0")
-                band_sens = metadata['Xmp.Camera.BandSensitivity']
-                band_senses.append(band_sens)
-                for j in range(1, len(names)):  # comparison with remaining images
-                    img_f = Image(names[j])
-                    metadata = img_f.read_xmp()
-                    if metadata['Xmp.MicaSense.RadiometricCalibration'] != radiometric:
-                        self.text.append("Обнаружено несовпадение тегов Xmp.MicaSense.RadiometricCalibration для "
-                                         "изображений потока {}".format(i))
-                        meta_check = False
-                        break
-                    if metadata['Xmp.Camera.BandSensitivity'] != band_sens:
-                        self.text.append("Обнаружено несовпадение тегов Xmp.Camera.BandSensitivity для "
-                                         "изображений потока {}".format(i))
-                        meta_check = False
-                        break
-
+            meta_check, avg_arr = check_average(img_list)
             if meta_check:
                 self.text.append("Метаданные изображений совпадают, поиск параметров...")
                 QtWidgets.qApp.processEvents()
@@ -161,7 +180,7 @@ class Ui_MainWindow(object):  # Qt-generated app interface
                     QtWidgets.qApp.processEvents()
 
                     note = "Коэффициенты полинома: "
-                    # Calculating "brightest pixel" value. All image will be normalized to that value. Averaging 11x11
+                    # Calculating brightest pixel value. All images will be normalized to that value. Averaging 11x11
                     Vref = image[xc-5:xc+6, yc-5:yc+6].mean()
                     Vx = np.empty(IMG_WIDTH)
                     df_r = []
@@ -169,26 +188,25 @@ class Ui_MainWindow(object):  # Qt-generated app interface
                     j = 0
                     k = 0
                     """ Following cycle computes each pixel to brighest pixel ratio, distance to vignetting center 
-                    and stores data in the arrays to be dumped later """
+                    and stores data in the lists to be used in the save_file function later """
                     while j < IMG_WIDTH:
                         while k < IMG_HEIGHT:
                             Vx[j] = image[j, k] / Vref
                             if Vx[j] < 1.2:
                                 r = ((j - xc) ** 2 + (k - yc) ** 2) ** (1 / 2)
-                                df_r.append(r)
+                                df_r.append(r)  # append radius to the processed pixel into dataframe
+                                # append processed pixel value normalized to the brightest pixel value into dataframe
                                 df_V.append(str(Vx[j]))
                             k = k + 1
                         k = 0
                         j = j + 1
                     df0 = np.vstack((df_r, df_V)).T
                     df0 = df0.astype(np.float64)
-                    df0 = pd.DataFrame(df0, columns=['r', 'V'])
-                    popt, pcov = curve_fit(poly6, df0['r'], df0['V'])  # coefficients calculation
+                    df0 = pd.DataFrame(df0, columns=['r', 'V'])  # form a dataframe for approximation
+                    popt, pcov = curve_fit(poly6, df0['r'], df0['V'])  # coefficients calculation using polynomial
 
-                    """Coefficients have to exist within certain limits. Stored coefficients will be compared to those 
-                    limits. An error will appear in the chat feed if limits are exceeded"""
-                    err_arr = []
-                    checks = str(popt)[1:-1].split()
+                    err_arr = []  # list to store limit-exceeding coefficients
+                    checks = str(popt)[1:-1].split()  # format coefficients for check and further usage
                     checks.insert(2, "0")
                     checks.insert(4, "0")
                     checks = list(map(float, checks))
@@ -197,7 +215,7 @@ class Ui_MainWindow(object):  # Qt-generated app interface
                     for j in range(len(checks)):
                         coefficient += str(checks[j])+";"
                     coefficient = coefficient[:len(coefficient)-1]
-                    coefficients.append(coefficient)  # reformatted coefficients is appended into array
+                    coefficients.append(coefficient)  # append formatted coefficients into err_arr
                     if checks[0] < -10e-05 or checks[0] > 10e-05:
                         err_arr.append(0)
                     if checks[1] < -10e-07 or checks[1] > 10e-07:
@@ -209,32 +227,31 @@ class Ui_MainWindow(object):  # Qt-generated app interface
                     note = note.replace("'", "")
                     note = note.replace("[", "")
                     note = note.replace("]", "")
-                    if len(err_arr) != 0:  # if limits were exceeded, exceeding coefficients will be listed
+                    if len(err_arr) != 0:  # if limits are exceeded, display exceeding coefficient
                         note += "; потенциально некачественные: "
                         for err in err_arr:
                             note += str(checks[err]) + ", "
                         note = note[:len(note)-2]
                     self.text.append(note)
                     QtWidgets.qApp.processEvents()
-                    # v0 = poly6(df0['r'], *popt)
-                    # plt.plot(df0['r'], v0, color='red')
 
                 self.text.append("Скрипт завершен, сохраните файлы конфигурации")
                 QtWidgets.qApp.processEvents()
-                self.btn_save.setEnabled(True)
+                self.btn_save.setEnabled(True)  # enable "Сохранить" button
+            else:
+                self.text.append("Обнаружены несовпадения в метаданных изображений")
+                QtWidgets.qApp.processEvents()
 
     def save_file(self):
+        """
+        Change current directory to the folder of user's choice. Get vignette parameters from centers and coefficients
+        lists and format them into .json and .ini files templates. Save files into the selected directory
+        """
         folder = QtWidgets.QFileDialog.getExistingDirectory(None, "Выберите директорию")
         if folder:
-            self.text.append("Файлы были сохранены в директорию {}".format(folder))
             os.chdir(folder)
-            QtWidgets.qApp.processEvents()
-
-            # Parameters to format metadata, centers and coefficients into configuration files
-            params = (band_senses[0], centers[0], coefficients[0], radiometrics[0], band_senses[1], centers[1],
-                      coefficients[1], radiometrics[1], band_senses[2], centers[2], coefficients[2], radiometrics[2],
-                      band_senses[3], centers[3], coefficients[3], radiometrics[3], band_senses[4], centers[4],
-                      coefficients[4], radiometrics[4])
+            params = (centers[0], coefficients[0], centers[1], coefficients[1], centers[2], coefficients[2], centers[3],
+                      coefficients[3], centers[4], coefficients[4])
             json_string = '''
                         {
                                 "Cams": {
@@ -243,118 +260,122 @@ class Ui_MainWindow(object):  # Qt-generated app interface
                                         "band_name": "Blue",
                                         "wavelength_fwhm": "28",
                                         "fnumber": "1.8",
-                                        "band_sensitivity": "%s",
+                                        "band_sensitivity": "0",
                                         "vignetting_center": "%s",
                                         "vignetting_polynomial": "%s",
-                                        "radiometric_calibration": "%s"
+                                        "radiometric_calibration": "0.0000865484;0"
                                     },
                                     "1": {
                                         "central_wavelength": "560",
                                         "band_name": "Green",
                                         "wavelength_fwhm": "20",
                                         "fnumber": "1.8",
-                                        "band_sensitivity": "%s",
+                                        "band_sensitivity": "0",
                                         "vignetting_center": "%s",
                                         "vignetting_polynomial": "%s",
-                                        "radiometric_calibration": "%s"
+                                        "radiometric_calibration": "0.0000865484;0"
                                     },
                                     "2": {
                                         "central_wavelength": "665",
                                         "band_name": "Red",
                                         "wavelength_fwhm": "14",
                                         "fnumber": "1.8",
-                                        "band_sensitivity": "%s",
+                                        "band_sensitivity": "0",
                                         "vignetting_center": "%s",
                                         "vignetting_polynomial": "%s",
-                                        "radiometric_calibration": "%s"
+                                        "radiometric_calibration": "0.0000865484;0"
                                     },
                                     "3": {
                                         "central_wavelength": "720",
                                         "band_name": "Rededge",
                                         "wavelength_fwhm": "12",
                                         "fnumber": "1.8",
-                                        "band_sensitivity": "%s",
+                                        "band_sensitivity": "0",
                                         "vignetting_center": "%s",
                                         "vignetting_polynomial": "%s",
-                                        "radiometric_calibration": "%s"
+                                        "radiometric_calibration": "0.0000865484;0"
                                     },
                                     "4": {
                                         "central_wavelength": "840",
                                         "band_name": "NIR",
                                         "wavelength_fwhm": "40",
                                         "fnumber": "1.8",
-                                        "band_sensitivity": "%s",
+                                        "band_sensitivity": "0",
                                         "vignetting_center": "%s",
                                         "vignetting_polynomial": "%s",
-                                        "radiometric_calibration": "%s"
+                                        "radiometric_calibration": "0.0000865484;0"
                                     }
                                 }
-                            }''' % params
+                            }
+                            ''' % params
             ini_string = '''
                         [Cam0]
                         central_wavelength=470
                         band_name=Blue
                         wavelength_fwhm=28
                         fnumber=1.8
-                        band_sensitivity=%s
+                        band_sensitivity=0
                         vignetting_center=%s
                         vignetting_polynomial=%s
-                        radiometric_calibration=%s
-                        
+                        radiometric_calibration=0.0000865484;0
+
                         [Cam1]
                         central_wavelength=560
                         band_name=Green
                         wavelength_fwhm=20
                         fnumber=1.8
-                        band_sensitivity=%s
+                        band_sensitivity=0
                         vignetting_center=%s
                         vignetting_polynomial=%s
-                        radiometric_calibration=%s
-                        
+                        radiometric_calibration=0.0000865484;0
+
                         [Cam2]
                         central_wavelength=668
                         band_name=Red
                         wavelength_fwhm=14
                         fnumber=1.8
-                        band_sensitivity=%s
+                        band_sensitivity=0
                         vignetting_center=%s
                         vignetting_polynomial=%s
-                        radiometric_calibration=%s
-                        
+                        radiometric_calibration=0.0000865484;0
+
                         [Cam3]
                         central_wavelength=720
                         band_name=Rededge
                         wavelength_fwhm=12
                         fnumber=1.8
-                        band_sensitivity=%s
+                        band_sensitivity=0
                         vignetting_center=%s
                         vignetting_polynomial=%s
-                        radiometric_calibration=%s
-                        
+                        radiometric_calibration=0.0000865484;0
+
                         [Cam4]
                         central_wavelength=840
                         band_name=NIR
                         wavelength_fwhm=40
                         fnumber=1.8
-                        band_sensitivity=%s
+                        band_sensitivity=0
                         vignetting_center=%s
                         vignetting_polynomial=%s
-                        radiometric_calibration=%s''' % params
+                        radiometric_calibration=0.0000865484;0
+                        ''' % params
 
-            json_result = json.loads(json_string)
-            with open('tags.json', 'w') as f:  # save .json file
+            json_result = json.loads(json_string)  # create json object from json_string
+            with open('tags.json', 'w') as f:  # write json object as tags.json file
                 json.dump(json_result, f, indent=2)
-            config = configparser.ConfigParser(allow_no_value=True)
+            config = configparser.ConfigParser(allow_no_value=True)  # setup config parser to work write .ini file
             config.read_string(ini_string)
-            with open('tags.ini', 'w') as f:  # save .ini file
+            with open('tags.ini', 'w') as f:  # write parsed ini_string as tags.ini file
                 config.write(f)
-            self.btn_start.setEnabled(False)
+            self.text.append("Файлы были сохранены в директорию {}".format(folder))
+            self.btn_start.setEnabled(False)  # disable "Запустить скрипт" button until the new directory is opened
+            QtWidgets.qApp.processEvents()
 
 
 if __name__ == "__main__":
-    app = QtWidgets.QApplication(sys.argv)
+    app = QtWidgets.QApplication(sys.argv)  # initialize Qt app with system arguments
     MainWindow = QtWidgets.QMainWindow()
     ui = Ui_MainWindow()
     ui.setupUi(MainWindow)
-    MainWindow.show()
-    sys.exit(app.exec_())
+    MainWindow.show()  # display Qt GUI using Ui_MainWindow Class methods
+    sys.exit(app.exec_())  # finish the program once app is closed
