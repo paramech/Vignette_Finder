@@ -10,8 +10,6 @@ from pyexiv2 import Image
 import json
 import configparser
 
-IMG_WIDTH = 1440
-IMG_HEIGHT = 1080
 centers = []  # list to store vignette centers as "x;y" strings
 coefficients = []  # list to store vignette coefficients as "1.1;2.2;3.3;4.4;5.5;6.6" strings
 
@@ -23,7 +21,7 @@ def check_average(img_list):
     will deliver correct result. If there is a difference in tags, finish function presumably. Else, find an average
     image and store it in the list. Repeat for each band
     :param img_list: filenames list containing all images from opened directory
-    :return: Checkout flag and average images list
+    :return: Checkout flag, average images list, image size parameters and blacklevel
     """
     averages = []
     for i in range(5):
@@ -35,6 +33,10 @@ def check_average(img_list):
         iso_speed = exif['Exif.Photo.ISOSpeedRatings']
         exposure_time = exif['Exif.Photo.ExposureTime']
         band_name = xmp['Xmp.Camera.BandName']
+        # Also define image size parameters and blacklevel from metadata for further use in the main script
+        img_width = int(exif['Exif.Image.ImageWidth'])
+        img_height = int(exif['Exif.Image.ImageLength'])
+        blacklevel = float(exif['Exif.Image.BlackLevel'][:len(exif['Exif.Image.BlackLevel'])-2])
         for j in range(1, len(names)):  # compare metadata from each image (besides first) to the reference
             img = Image(names[j])
             exif = img.read_exif()
@@ -47,7 +49,7 @@ def check_average(img_list):
         images = np.array([np.array(mpimg.imread(name)) for name in names])
         average = np.array(np.mean(images, axis=0), dtype='uint16')
         averages.append(average)
-    return True, averages
+    return True, averages, img_width, img_height, blacklevel
 
 
 def poly6(x, b, c, e, g):
@@ -161,7 +163,7 @@ class Ui_MainWindow(object):
             note = note[:len(note)-2]
             self.text.append(note)
             QtWidgets.qApp.processEvents()
-            meta_check, avg_arr = check_average(img_list)
+            meta_check, avg_arr, img_width, img_height, blacklevel = check_average(img_list)
             if meta_check:
                 self.text.append("Метаданные изображений совпадают, поиск параметров...")
                 QtWidgets.qApp.processEvents()
@@ -169,7 +171,7 @@ class Ui_MainWindow(object):
                     # Calculating vignette center position which is supposed to be the brightest point in the image
                     note = ("Центр виньетирования для канала {}: ".format(i))
                     image = avg_arr[i].T
-                    image = image - 3840.0  # blacklevel
+                    image = image - blacklevel
                     com = ndimage.center_of_mass(image)  # center of mass calculation method
                     xc = int(com[0])
                     yc = int(com[1])
@@ -182,15 +184,15 @@ class Ui_MainWindow(object):
                     note = "Коэффициенты полинома: "
                     # Calculating brightest pixel value. All images will be normalized to that value. Averaging 11x11
                     Vref = image[xc-5:xc+6, yc-5:yc+6].mean()
-                    Vx = np.empty(IMG_WIDTH)
+                    Vx = np.empty(img_width)
                     df_r = []
                     df_V = []
                     j = 0
                     k = 0
                     """ Following cycle computes each pixel to brighest pixel ratio, distance to vignetting center 
                     and stores data in the lists to be used in the save_file function later """
-                    while j < IMG_WIDTH:
-                        while k < IMG_HEIGHT:
+                    while j < img_width:
+                        while k < img_height:
                             Vx[j] = image[j, k] / Vref
                             if Vx[j] < 1.2:
                                 r = ((j - xc) ** 2 + (k - yc) ** 2) ** (1 / 2)
@@ -215,6 +217,7 @@ class Ui_MainWindow(object):
                     for j in range(len(checks)):
                         coefficient += str(checks[j])+";"
                     coefficient = coefficient[:len(coefficient)-1]
+                    coefficient = coefficient.replace("0.0;", "0;")
                     coefficients.append(coefficient)  # append formatted coefficients into err_arr
                     if checks[0] < -10e-05 or checks[0] > 10e-05:
                         err_arr.append(0)
@@ -260,50 +263,50 @@ class Ui_MainWindow(object):
                                         "band_name": "Blue",
                                         "wavelength_fwhm": "28",
                                         "fnumber": "1.8",
-                                        "band_sensitivity": "0",
+                                        "band_sensitivity": "0.83",
                                         "vignetting_center": "%s",
                                         "vignetting_polynomial": "%s",
-                                        "radiometric_calibration": "0.0000865484;0"
+                                        "radiometric_calibration": "0.000119266;0"
                                     },
                                     "1": {
                                         "central_wavelength": "560",
                                         "band_name": "Green",
                                         "wavelength_fwhm": "20",
                                         "fnumber": "1.8",
-                                        "band_sensitivity": "0",
+                                        "band_sensitivity": "0.8",
                                         "vignetting_center": "%s",
                                         "vignetting_polynomial": "%s",
-                                        "radiometric_calibration": "0.0000865484;0"
+                                        "radiometric_calibration": "0.000123596;0"
                                     },
                                     "2": {
                                         "central_wavelength": "665",
                                         "band_name": "Red",
                                         "wavelength_fwhm": "14",
                                         "fnumber": "1.8",
-                                        "band_sensitivity": "0",
+                                        "band_sensitivity": "0.4",
                                         "vignetting_center": "%s",
                                         "vignetting_polynomial": "%s",
-                                        "radiometric_calibration": "0.0000865484;0"
+                                        "radiometric_calibration": "0.000246559;0"
                                     },
                                     "3": {
                                         "central_wavelength": "720",
                                         "band_name": "Rededge",
                                         "wavelength_fwhm": "12",
                                         "fnumber": "1.8",
-                                        "band_sensitivity": "0",
+                                        "band_sensitivity": "0.307",
                                         "vignetting_center": "%s",
                                         "vignetting_polynomial": "%s",
-                                        "radiometric_calibration": "0.0000865484;0"
+                                        "radiometric_calibration": "0.000322352;0"
                                     },
                                     "4": {
                                         "central_wavelength": "840",
                                         "band_name": "NIR",
                                         "wavelength_fwhm": "40",
                                         "fnumber": "1.8",
-                                        "band_sensitivity": "0",
+                                        "band_sensitivity": "0.73",
                                         "vignetting_center": "%s",
                                         "vignetting_polynomial": "%s",
-                                        "radiometric_calibration": "0.0000865484;0"
+                                        "radiometric_calibration": "0.000135683;0"
                                     }
                                 }
                             }
@@ -314,50 +317,50 @@ class Ui_MainWindow(object):
                         band_name=Blue
                         wavelength_fwhm=28
                         fnumber=1.8
-                        band_sensitivity=0
+                        band_sensitivity=0.83
                         vignetting_center=%s
                         vignetting_polynomial=%s
-                        radiometric_calibration=0.0000865484;0
+                        radiometric_calibration=0.000119266;0
 
                         [Cam1]
                         central_wavelength=560
                         band_name=Green
                         wavelength_fwhm=20
                         fnumber=1.8
-                        band_sensitivity=0
+                        band_sensitivity=0.8
                         vignetting_center=%s
                         vignetting_polynomial=%s
-                        radiometric_calibration=0.0000865484;0
+                        radiometric_calibration=0.000123596;0
 
                         [Cam2]
                         central_wavelength=668
                         band_name=Red
                         wavelength_fwhm=14
                         fnumber=1.8
-                        band_sensitivity=0
+                        band_sensitivity=0.4
                         vignetting_center=%s
                         vignetting_polynomial=%s
-                        radiometric_calibration=0.0000865484;0
+                        radiometric_calibration=0.000246559;0
 
                         [Cam3]
                         central_wavelength=720
                         band_name=Rededge
                         wavelength_fwhm=12
                         fnumber=1.8
-                        band_sensitivity=0
+                        band_sensitivity=0.307
                         vignetting_center=%s
                         vignetting_polynomial=%s
-                        radiometric_calibration=0.0000865484;0
+                        radiometric_calibration=0.000322352;0
 
                         [Cam4]
                         central_wavelength=840
                         band_name=NIR
                         wavelength_fwhm=40
                         fnumber=1.8
-                        band_sensitivity=0
+                        band_sensitivity=0.73
                         vignetting_center=%s
                         vignetting_polynomial=%s
-                        radiometric_calibration=0.0000865484;0
+                        radiometric_calibration=0.000135683;0
                         ''' % params
 
             json_result = json.loads(json_string)  # create json object from json_string
