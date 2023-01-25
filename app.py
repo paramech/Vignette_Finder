@@ -14,6 +14,29 @@ centers = []  # list to store vignette centers as "x;y" strings
 coefficients = []  # list to store vignette coefficients as "1.1;2.2;3.3;4.4;5.5;6.6" strings
 
 
+def meta_filter(img_list):
+    """
+    Check whether images in img_list contain metadata necessary for image averaging. If they lack tags or the value is 0
+    remove those images from the list and display their filenames in the text browser
+    :param img_list: filenames list containing all images from opened directory
+    :return: filenames list without filtered images, string with names of removed images
+    """
+    filtered = ""
+    for name in img_list:
+        img = Image(name)
+        exif = img.read_exif()
+        try:
+            iso_speed = exif['Exif.Photo.ISOSpeedRatings']
+            exposure_time = exif['Exif.Photo.ExposureTime']
+            if iso_speed is None or exposure_time is None or iso_speed == '0' or exposure_time == '0':
+                img_list.remove(name)
+                filtered += str(name) + ", "
+        except KeyError:
+            img_list.remove(name)
+            filtered += str(name) + ", "
+    return img_list, filtered[:len(filtered)-2]
+
+
 def check_average(img_list):
     """
     Check whether the metadata from the image corresponds to the metadata from the first image of each band. BandName is
@@ -161,6 +184,10 @@ class Ui_MainWindow(object):
             for img in img_list:  # display found images in the text browser
                 note += "{}, ".format(img)
             note = note[:len(note)-2]
+            self.text.append(note)
+            QtWidgets.qApp.processEvents()
+            img_list, filtered = meta_filter(img_list)
+            note = "Следующие изображения не содержат необходимые теги и будут проигнорированы: {}".format(filtered)
             self.text.append(note)
             QtWidgets.qApp.processEvents()
             meta_check, avg_arr, img_width, img_height, blacklevel = check_average(img_list)
