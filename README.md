@@ -2,7 +2,7 @@ Before working make sure to install all the modules listed in **requirements.txt
 
 * **app.py** - main file to run the app. In the GUI you will be able to open folder with .tif images of evenly lit white wall from every band of Geoscan Pollux multispectral camera using "Открыть" button. Run the main script by using "Запустить скрипт" and wait until the calibration is finished, this process will be followed by the messages in the text browser. After that, "Сохранить" button will allow you to save .json and .ini configuration files containing key metadata, vignette centers and coefficients.
 
-* **example_input** - folder with 10 example photos of evenly lit whit wall from each band.
+* **example_input** - folder with 10 example photos of evenly lit white wall from each band.
 
 * **example_output** - folder with processed configuration files of example_input photos.
 ##
